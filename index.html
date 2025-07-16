@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>現在地ハザードマップ＆駅経路探索</title>
+
+    <!-- Leaflet.js (地図ライブラリ) のCSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <!-- Leaflet Routing Machine (経路探索プラグイン) のCSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+
+    <!-- Tailwind CSS (デザインフレームワーク) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Google Fonts (フォント) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        /* カスタムフォントと地図の基本スタイル */
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        #map {
+            /* ビューポートの高さからヘッダーとコントロールの高さを引く */
+            height: calc(100vh - 240px); 
+            width: 100%;
+            z-index: 10;
+        }
+        /* Leaflet Routing Machineの経路案内UIを調整 */
+        .leaflet-routing-container {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        @media (max-width: 768px) {
+            #map {
+                /* スマホではコントロール部分が大きくなるため調整 */
+                height: calc(100vh - 330px); 
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="flex flex-col h-screen">
+        <!-- ヘッダー -->
+        <header class="bg-white shadow-md p-4 z-30">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-800 text-center">現在地ハザードマップ＆駅経路探索</h1>
+            <p class="text-center text-gray-600 mt-1">現在地の災害リスクと最寄り駅への経路を確認</p>
+        </header>
+
+        <!-- コントロールパネル -->
+        <div class="bg-gray-50 p-4 shadow-inner z-20">
+            <div class="container mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+                <!-- 操作ボタンエリア -->
+                <div class="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+                    <button id="getLocationBtn" class="w-full sm:w-auto bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-blue-700 transition-all duration-200 ease-in-out transform hover:scale-105 flex items-center justify-center">
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        現在地を取得
+                    </button>
+                    <button id="findStationBtn" class="w-full sm:w-auto bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-green-700 transition-all duration-200 ease-in-out transform hover:scale-105 flex items-center justify-center disabled:bg-gray-400 disabled:cursor-not-allowed" disabled>
+                        <svg class="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
+                        最寄り駅を探す
+                    </button>
+                </div>
+
+                <!-- ハザードマップ選択 -->
+                <div class="flex items-center space-x-4 md:space-x-6">
+                    <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="flood" value="flood" class="h-5 w-5 rounded text-blue-500 focus:ring-blue-400"><span class="font-medium text-gray-700">洪水</span></label>
+                    <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="landslide" value="landslide" class="h-5 w-5 rounded text-yellow-500 focus:ring-yellow-400"><span class="font-medium text-gray-700">土砂災害</span></label>
+                    <label class="flex items-center space-x-2 cursor-pointer"><input type="checkbox" id="tsunami" value="tsunami" class="h-5 w-5 rounded text-red-500 focus:ring-red-400"><span class="font-medium text-gray-700">津波</span></label>
+                </div>
+            </div>
+             <!-- メッセージ表示エリア -->
+            <div id="message" class="text-center text-sm text-gray-600 mt-3 h-5"></div>
+        </div>
+
+        <!-- 地図と凡例のコンテナ -->
+        <div class="flex-grow relative">
+            <div id="map"></div>
+            <div id="legend" class="absolute bottom-4 right-4 bg-white bg-opacity-80 p-3 rounded-lg shadow-lg z-10 max-w-xs hidden"><h4 id="legend-title" class="font-bold mb-2 text-gray-800"></h4><div id="legend-content"></div></div>
+        </div>
+    </div>
+    
+    <!-- ライブラリのJSファイル -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+    <script>
+        // --- 初期設定 ---
+        const messageEl = document.getElementById('message');
+        const getLocationBtn = document.getElementById('getLocationBtn');
+        const findStationBtn = document.getElementById('findStationBtn');
+        const legendEl = document.getElementById('legend');
+        const legendTitleEl = document.getElementById('legend-title');
+        const legendContentEl = document.getElementById('legend-content');
+        
+        let userMarker = null;
+        let userLocation = null; // ユーザーの緯度経度を保持
+        let routingControl = null; // 経路表示コントロールを保持
+
+        // --- 地図の初期化 ---
+        const map = L.map('map').setView([35.681236, 139.767125], 10);
+        L.tileLayer('https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', {
+            attribution: "<a href='https://maps.gsi.go.jp/development/ichiran.html' target='_blank'>地理院タイル</a>"
+        }).addTo(map);
+
+        // --- ハザードマップレイヤー定義 ---
+        const hazardLayers = {
+            flood: L.tileLayer('https://disaportal.gsi.go.jp/data/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png', { opacity: 0.7, attribution: "<a href='https://disaportal.gsi.go.jp/' target='_blank'>ハザードマップポータルサイト</a>" }),
+            landslide: L.tileLayer('https://disaportal.gsi.go.jp/data/raster/05_dosha_keikai_data/{z}/{x}/{y}.png', { opacity: 0.7, attribution: "<a href='https://disaportal.gsi.go.jp/' target='_blank'>ハザードマップポータルサイト</a>" }),
+            tsunami: L.tileLayer('https://disaportal.gsi.go.jp/data/raster/04_tsunami_shinsuishin_data/{z}/{x}/{y}.png', { opacity: 0.7, attribution: "<a href='https://disaportal.gsi.go.jp/' target='_blank'>ハザードマップポータルサイト</a>" })
+        };
+        const legendData = { /* (凡例データは変更なし) */ };
+
+        // --- イベントリスナー ---
+        getLocationBtn.addEventListener('click', () => {
+            messageEl.textContent = '現在地を取得中...';
+            navigator.geolocation.getCurrentPosition(onGetLocationSuccess, onGetLocationError, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+        });
+
+        findStationBtn.addEventListener('click', findNearestStation);
+
+        document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const layerName = e.target.value;
+                if (e.target.checked) {
+                    hazardLayers[layerName].addTo(map);
+                    updateLegend(layerName);
+                } else {
+                    map.removeLayer(hazardLayers[layerName]);
+                    const anyChecked = [...document.querySelectorAll('input[type="checkbox"]')].some(cb => cb.checked);
+                    if (!anyChecked) {
+                        legendEl.classList.add('hidden');
+                    } else {
+                        const lastChecked = [...document.querySelectorAll('input[type="checkbox"]')].filter(cb => cb.checked).pop();
+                        if(lastChecked) updateLegend(lastChecked.value);
+                    }
+                }
+            });
+        });
+
+        // --- 関数定義 ---
+        function onGetLocationSuccess(position) {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            userLocation = L.latLng(lat, lon); // ユーザー位置を保存
+
+            messageEl.textContent = '現在地を取得しました。';
+            map.setView(userLocation, 15);
+
+            if (userMarker) map.removeLayer(userMarker);
+            userMarker = L.marker(userLocation).addTo(map).bindPopup('<b>あなたの現在地</b>').openPopup();
+            
+            findStationBtn.disabled = false; // 「最寄り駅を探す」ボタンを有効化
+            setTimeout(() => { messageEl.textContent = '「最寄り駅を探す」か、ハザードマップを選んでください。'; }, 3000);
+        }
+
+        function onGetLocationError(error) {
+             let errorMessage = '';
+            switch (error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage = '位置情報の利用が許可されていません。ブラウザの設定を確認してください。';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage = '位置情報を取得できませんでした。ネットワーク接続や場所を確認してください。';
+                    break;
+                case error.TIMEOUT:
+                    errorMessage = 'タイムアウトしました。電波の良い場所で再度お試しください。';
+                    break;
+                default:
+                    errorMessage = `不明なエラーが発生しました (コード: ${error.code})。`;
+                    break;
+            }
+            messageEl.textContent = errorMessage;
+            console.error("Geolocation Error:", error.message);
+        }
+
+        function updateLegend(layerName) {
+            if (layerName && legendData[layerName]) {
+                legendTitleEl.textContent = legendData[layerName].title;
+                legendContentEl.innerHTML = legendData[layerName].content;
+                legendEl.classList.remove('hidden');
+            } else {
+                legendEl.classList.add('hidden');
+            }
+        }
+
+        // 最寄り駅を探して経路を表示する関数
+        async function findNearestStation() {
+            if (!userLocation) {
+                messageEl.textContent = '先に現在地を取得してください。';
+                return;
+            }
+            messageEl.textContent = '最寄りの駅を検索中 (OpenStreetMap)...';
+
+            const radius = 2000;
+            const overpassQuery = `[out:json][timeout:25];(node["railway"="station"](around:${radius},${userLocation.lat},${userLocation.lng});way["railway"="station"](around:${radius},${userLocation.lat},${userLocation.lng});relation["railway"="station"](around:${radius},${userLocation.lat},${userLocation.lng}););out center;`;
+            const apiUrl = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(overpassQuery)}`;
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    throw new Error(`サーバーエラー: ${response.status} ${response.statusText}`);
+                }
+                const data = await response.json();
+                
+                if (data.elements && data.elements.length > 0) {
+                    let closestStation = null;
+                    let minDistance = Infinity;
+
+                    data.elements.forEach(element => {
+                        let stationLat, stationLon;
+                        if (element.type === 'node') {
+                            stationLat = element.lat;
+                            stationLon = element.lon;
+                        } else if (element.center) {
+                            stationLat = element.center.lat;
+                            stationLon = element.center.lon;
+                        } else {
+                            return;
+                        }
+                        
+                        const stationLocation = L.latLng(stationLat, stationLon);
+                        const distance = userLocation.distanceTo(stationLocation);
+
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestStation = {
+                                name: element.tags.name || "名前不明の駅",
+                                location: stationLocation
+                            };
+                        }
+                    });
+
+                    if (closestStation) {
+                        messageEl.textContent = `最寄り駅「${closestStation.name}」までの経路を表示します。`;
+                        if (routingControl) map.removeControl(routingControl);
+
+                        routingControl = L.Routing.control({
+                            waypoints: [ userLocation, closestStation.location ],
+                            routeWhileDragging: true,
+                            router: L.Routing.osrmv1({ serviceUrl: 'https://router.project-osrm.org/route/v1', profile: 'foot' }),
+                            lineOptions: { styles: [{color: '#0ea5e9', opacity: 0.8, weight: 6}] },
+                            createMarker: (i, waypoint) => {
+                                return L.marker(waypoint.latLng).bindPopup(i === 0 ? '現在地' : `目的地: ${closestStation.name}駅`);
+                            },
+                            // 【修正】language: 'ja' の行を削除
+                            show: true
+                        }).addTo(map);
+                    } else {
+                         messageEl.textContent = '周辺2km以内に駅が見つかりませんでした。';
+                    }
+                } else {
+                    messageEl.textContent = '周辺2km以内に駅が見つかりませんでした。';
+                }
+            } catch (error) {
+                console.error('駅情報の取得に失敗しました:', error);
+                let errorMessage = '駅情報の取得中にエラーが発生しました。';
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'ネットワークエラー。インターネット接続を確認してください。';
+                } else if (error instanceof SyntaxError) {
+                    errorMessage = '受信データ形式エラー。再度お試しください。';
+                } else if (error.message.includes('サーバーエラー')) {
+                    errorMessage = `サーバーで問題が発生しています (${error.message})。`;
+                }
+                messageEl.textContent = errorMessage;
+            }
+        }
+        
+        // --- 凡例データの定義 (省略) ---
+        legendData.flood = { title: "洪水浸水想定区域 (浸水深)", content: `<div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#F2F2F2;"></div>0.5m未満</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#FFE5E5;"></div>0.5~3.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#FFC1C1;"></div>3.0~5.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#FFA2A2;"></div>5.0~10.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#FF7676;"></div>10.0~20.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#E50000;"></div>20.0m以上</div>` };
+        legendData.landslide = { title: "土砂災害警戒区域", content: `<div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#FFFF00; opacity: 0.7;"></div>土砂災害警戒区域</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#FF0000; opacity: 0.7;"></div>土砂災害特別警戒区域</div>` };
+        legendData.tsunami = { title: "津波浸水想定 (浸水深)", content: `<div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#F2F2F2;"></div>0.3m未満</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#E5E5FF;"></div>0.3~1.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#C1C1FF;"></div>1.0~3.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#A2A2FF;"></div>3.0~5.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#7676FF;"></div>5.0~10.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#0000E5;"></div>10.0~20.0m</div><div class="flex items-center"><div class="w-4 h-4 mr-2" style="background:#000072;"></div>20.0m以上</div>` };
+    </script>
+
+</body>
+</html>
